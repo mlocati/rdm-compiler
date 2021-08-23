@@ -1,0 +1,135 @@
+name: Compile Redis Desktop Manager
+
+on:
+  repository_dispatch:
+    types:
+      - compile
+
+jobs:
+  compile:
+    name: Create Windows installer
+    runs-on: windows-latest
+    steps:
+        - name: Configure environment
+          run: |
+            $version = "${{ github.event.client_payload.version }}"
+            if (-not($version)) {
+              throw 'Missing version'
+            }
+            Write-Output -InoutObject "Building version $version"
+            Add-Content -Path $Env:GITHUB_ENV -Value "BUILD_VERSION=$version"
+        - name: Prepare MSVC
+          uses: bus1/cabuild/action/msdevshell@v1
+          with:
+            architecture: x64
+        - name: Install Python
+          uses: actions/setup-python@v2
+          with:
+            python-version: '3.8'
+            architecture: x64
+        - name: Inspect Python
+          run: |
+            $pythonVersionFull = python.exe -c 'import platform; print(platform.python_version())'
+            $pythonVersionMajor = python.exe -c 'import sys; print(sys.version_info[0])'
+            $pythonVersionMajorMinor = python.exe -c 'import sys; print(str(sys.version_info[0]) + str(sys.version_info[1]))'
+            Add-Content -Path $Env:GITHUB_ENV -Value "BUILD_PYTHONVERSION_FULL=$pythonVersionFull"
+            Add-Content -Path $Env:GITHUB_ENV -Value "BUILD_PYTHONVERSION_MAJOR=$pythonVersionMajor"
+            Add-Content -Path $Env:GITHUB_ENV -Value "BUILD_PYTHONVERSION_MAJORMINOR=$pythonVersionMajorMinor"
+        - name: Checkout Python
+          uses: actions/checkout@v2
+          with:
+            repository: python/cpython
+            path: Python
+            ref: v${{ env.BUILD_PYTHONVERSION_FULL }}
+        - name: Compile Python
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\Python\PCbuild"
+            .\get_externals.bat
+            .\build.bat -c Release -p x64
+            Add-Content -Path $Env:GITHUB_ENV -Value "INCLUDE=${Env:INCLUDE};${Env:GITHUB_WORKSPACE}\Python\Include;${Env:GITHUB_WORKSPACE}\Python\PC"
+            Add-Content -Path $Env:GITHUB_ENV -Value "LIB=${Env:LIB};${Env:GITHUB_WORKSPACE}\Python\PCbuild\amd64"
+        - name: Install Qt
+          uses: jurplel/install-qt-action@v2
+          with:
+            version: 5.15.1
+            target: desktop
+            arch: win64_msvc2019_64
+            modules: qtcharts
+            setup-python: false
+        - name: Checkout RDM
+          uses: actions/checkout@v2
+          with:
+            repository: uglide/RedisDesktopManager
+            path: RDM
+            submodules: recursive
+            ref: ${{ env.BUILD_VERSION }}
+        - name: Patch hiredis
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\3rdparty\qredisclient\3rdparty\hiredis"
+            git.exe apply --verbose ..\hiredis-win.patch
+        - name: Install zlib
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\3rdparty"
+            nuget.exe install zlib-msvc14-x64 -Version 1.2.11.7795
+        - name: Compile lz4
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\3rdparty\lz4\build\cmake"
+            cmake.exe -G 'Visual Studio 16 2019' -A x64 -DLZ4_BUNDLED_MODE=ON -DBUILD_SHARED_LIBS=ON -B .
+            cmake.exe --build . --config Release
+        - name: Install PIP dependencies
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer\resources"
+            Copy-Item -Recurse -Force -Path "${Env:GITHUB_WORKSPACE}\RDM\src\py\*" -Destination .
+            New-Item -ItemType directory -Path Lib\site-packages | Out-Null
+            pip.exe install -t Lib\site-packages -r requirements.txt
+            python.exe -m compileall -b .
+            Remove-Item -Recurse -Force -Path * -Include *.py
+            Remove-Item -Recurse -Force -Path * -Include __pycache__
+            Remove-Item -Recurse -Force -Path * -Include *.dist-info
+            Remove-Item -Recurse -Force -Path * -Include *.egg-info
+        - name: Create RDM translation files
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\src"
+            lupdate.exe rdm.pro
+            lrelease.exe -verbose rdm.pro
+            New-Item -ItemType directory -Path ..\build\windows\installer\resources\translations | Out-Null
+            Copy-Item -Path resources\translations\*.qm -Destination ..\build\windows\installer\resources\translations\
+        - name: Compile RDM
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\src"
+            python.exe ..\build\utils\set_version.py "$Env:BUILD_VERSION" > version.h
+            qmake.exe rdm.pro CONFIG-=debug "VERSION=$Env:BUILD_VERSION"
+            nmake.exe
+        - name: Add Python files
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer\resources"
+            curl.exe -sSLf -o python-embed.zip "https://www.python.org/ftp/python/${Env:BUILD_PYTHONVERSION_FULL}/python-${Env:BUILD_PYTHONVERSION_FULL}-embed-amd64.zip"
+            7z.exe x python-embed.zip python${Env:BUILD_PYTHONVERSION_MAJORMINOR}.zip python${Env:BUILD_PYTHONVERSION_MAJOR}.dll python${Env:BUILD_PYTHONVERSION_MAJORMINOR}.dll unicodedata.pyd _bz2.pyd
+            Remove-Item -Path python-embed.zip
+        - name: Create RDM installer
+          run: |
+            $versionForInstaller = "$Env:BUILD_VERSION"
+            while (-not($versionForInstaller -match '^[^.]+(\.[^.]){3,}$')) {
+              $versionForInstaller = "$versionForInstaller.0"
+            }
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM"
+            Copy-Item -Path bin\windows\release\rdm.exe -Destination build\windows\installer\resources\
+            Copy-Item -Path bin\windows\release\rdm.exp -Destination build\windows\installer\resources\
+            Copy-Item -Path bin\windows\release\rdm.lib -Destination build\windows\installer\resources\
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer\resources"
+            windeployqt.exe --no-angle --no-opengl-sw --no-compiler-runtime --no-translations --release --force --qmldir ../../../../src/qml rdm.exe
+            makensis.exe /V1 /DVERSION=$versionForInstaller ../installer.nsi
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer"
+            Move-Item -Path "rdm-$versionForInstaller.exe" -Destination "install-rdm.exe"
+            $installerSize = (Get-Item -Path install-rdm.exe).Length
+            $installerHash = (Get-FileHash install-rdm.exe -Algorithm SHA256).Hash
+            Set-Content -Value $installerHash -LiteralPath install-rdm.sha256
+            Write-Output -InputObject ('Installer size : {0:N0} bytes ' -f $installerSize)
+            Write-Output -InputObject "Installer SHA256 hash: $installerHash"
+        - name: Create release
+          uses: softprops/action-gh-release@v1
+          with:
+            tag_name: ${{ env.BUILD_VERSION }}
+            files: |
+              RDM/build/windows/installer/install-rdm.exe
+              RDM/build/windows/installer/install-rdm.sha256
