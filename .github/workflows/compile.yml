@@ -44,6 +44,13 @@ jobs:
         - name: Compile Python
           run: |
             Set-Location -Path "${Env:GITHUB_WORKSPACE}\Python\PCbuild"
+            # https://github.com/python/cpython/commit/f4b94b1f57827083990272b5f282aa1493ae2bf4
+            $pythonProps = Get-Content -Path .\python.props -Encoding utf8NoBOM | Out-String
+            if (-not($pythonProps.Contains('Avoid upgrading to Windows 11 SDK for now, but assume the latest Win10 SDK is installed'))) {
+              $pythonPropsInsertAt = $pythonProps.LastIndexOf('</_RegistryVersion>') + '</_RegistryVersion>'.Length
+              $pythonProps = $pythonProps.Insert($pythonPropsInsertAt, '<!-- Avoid upgrading to Windows 11 SDK for now, but assume the latest Win10 SDK is installed --><_RegistryVersion Condition="$([System.Version]::Parse($(_RegistryVersion))) >= $([System.Version]::Parse(`10.0.22000.0`))">10.0.19041.0</_RegistryVersion>')
+              Set-Content -Path .\python.props -Value $pythonProps -Encoding utf8NoBOM
+            }
             .\get_externals.bat
             .\build.bat -c Release -p x64
             Add-Content -Path $Env:GITHUB_ENV -Value "INCLUDE=${Env:INCLUDE};${Env:GITHUB_WORKSPACE}\Python\Include;${Env:GITHUB_WORKSPACE}\Python\PC"
