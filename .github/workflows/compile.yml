@@ -47,9 +47,16 @@ jobs:
             # https://github.com/python/cpython/commit/f4b94b1f57827083990272b5f282aa1493ae2bf4
             $pythonProps = Get-Content -Path .\python.props -Encoding utf8NoBOM | Out-String
             if (-not($pythonProps.Contains('Avoid upgrading to Windows 11 SDK for now, but assume the latest Win10 SDK is installed'))) {
+              Write-Output -InputObject 'Patching python.props'
               $pythonPropsInsertAt = $pythonProps.LastIndexOf('</_RegistryVersion>') + '</_RegistryVersion>'.Length
               $pythonProps = $pythonProps.Insert($pythonPropsInsertAt, '<!-- Avoid upgrading to Windows 11 SDK for now, but assume the latest Win10 SDK is installed --><_RegistryVersion Condition="$([System.Version]::Parse($(_RegistryVersion))) >= $([System.Version]::Parse(`10.0.22000.0`))">10.0.19041.0</_RegistryVersion>')
               Set-Content -Path .\python.props -Value $pythonProps -Encoding utf8NoBOM
+            }
+            $libffiProps = Get-Content -Path .\libffi.props -Encoding utf8NoBOM | Out-String
+            if ($libffiProps.Contains('libffi-7.')) {
+              Write-Output -InputObject 'Patching libffi.props'
+              $libffiProps =$libffiProps.Replace('libffi-7.', 'libffi-8.')
+              Set-Content -Path .\libffi.props -Value $libffiProps -Encoding utf8NoBOM
             }
             .\get_externals.bat
             .\build.bat -c Release -p x64
