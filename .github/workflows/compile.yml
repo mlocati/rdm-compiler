@@ -16,7 +16,7 @@ jobs:
             if (-not($version)) {
               throw 'Missing version'
             }
-            Write-Output -InoutObject "Building version $version"
+            Write-Output -InputObject "Building version $version"
             Add-Content -Path $Env:GITHUB_ENV -Value "BUILD_VERSION=$version"
         - name: Prepare MSVC
           uses: bus1/cabuild/action/msdevshell@v1
