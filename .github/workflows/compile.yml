@@ -90,6 +90,16 @@ jobs:
             Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\3rdparty\lz4\build\cmake"
             cmake.exe -G 'Visual Studio 16 2019' -A x64 -DLZ4_BUNDLED_MODE=ON -DBUILD_SHARED_LIBS=ON -B .
             cmake.exe --build . --config Release
+        - name: Compile brotli
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\3rdparty\brotli"
+            cmake.exe -G 'Visual Studio 16 2019' -A x64 -DBUILD_SHARED_LIBS=OFF -B .
+            cmake.exe --build . --config Release
+        - name: Compile snappy
+          run: |
+            Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\3rdparty\snappy"
+            cmake.exe -G 'Visual Studio 16 2019' -A x64 -DHAVE_LIBLZO2=0 -DHAVE_LIBLZ4=0 -B .
+            cmake.exe --build . --config Release
         - name: Install PIP dependencies
           run: |
             Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer\resources"
