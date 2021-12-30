@@ -139,7 +139,7 @@ jobs:
           run: |
             $versionForInstaller = "$Env:BUILD_VERSION"
             Write-Output -InputObject "Determining version for installer based on $versionForInstaller"
-            while (-not($versionForInstaller -match '^[^.]+(\.[^.]){3,}$')) {
+            while (-not($versionForInstaller -match '^[^.]+(\.[^.]+){3,}$')) {
               $versionForInstaller = "$versionForInstaller.0"
             }
             Write-Output -InputObject "Version for installer: $versionForInstaller"
