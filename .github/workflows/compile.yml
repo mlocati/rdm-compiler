@@ -138,18 +138,25 @@ jobs:
         - name: Create RDM installer
           run: |
             $versionForInstaller = "$Env:BUILD_VERSION"
+            Write-Output -InputObject "Determining version for installer based on $versionForInstaller"
             while (-not($versionForInstaller -match '^[^.]+(\.[^.]){3,}$')) {
               $versionForInstaller = "$versionForInstaller.0"
             }
+            Write-Output -InputObject "Version for installer: $versionForInstaller"
+            Write-Output -InputObject 'Copying files'
             Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM"
             Copy-Item -Path bin\windows\release\rdm.exe -Destination build\windows\installer\resources\
             Copy-Item -Path bin\windows\release\rdm.exp -Destination build\windows\installer\resources\
             Copy-Item -Path bin\windows\release\rdm.lib -Destination build\windows\installer\resources\
             Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer\resources"
+            Write-Output -InputObject 'Invoking windeployqt'
             windeployqt.exe --no-angle --no-opengl-sw --no-compiler-runtime --no-translations --release --force --qmldir ../../../../src/qml rdm.exe
+            Write-Output -InputObject 'Invoking makensis'
             makensis.exe /V1 /DVERSION=$versionForInstaller ../installer.nsi
             Set-Location -Path "${Env:GITHUB_WORKSPACE}\RDM\build\windows\installer"
+            Write-Output -InputObject 'Renaming installer'
             Move-Item -Path "rdm-$versionForInstaller.exe" -Destination "install-rdm.exe"
+            Write-Output -InputObject 'Calculading details'
             $installerSize = (Get-Item -Path install-rdm.exe).Length
             $installerHash = (Get-FileHash install-rdm.exe -Algorithm SHA256).Hash
             Set-Content -Value $installerHash -LiteralPath install-rdm.sha256
